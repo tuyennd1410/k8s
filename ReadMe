@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# Set the container runtime endpoint for CRI-O compatibility
+export CONTAINER_RUNTIME_ENDPOINT=unix:///var/run/containerd/containerd.sock
+PATH=""
+
+# Installing containerd: Set up necessary kernel modules and system configurations
+echo "#----> Installing containerd:"
+modprobe overlay
+modprobe br_netfilter
+
+# Load necessary modules at boot
+cat <<EOF | tee /etc/modules-load.d/containerd.conf
+overlay
+br_netfilter
+EOF
+
+# Configure networking for Kubernetes to allow iptables to see bridged traffic and enable IP forwarding
+cat <<EOF | tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+# Apply the sysctl settings
+sysctl --system
+
+# Clean up YUM packages and upgrade the system
+yum clean packages
+yum upgrade -y
+
+# Install essential packages needed for Kubernetes and containerd
+yum install -y pcre-devel yum-utils device-mapper-persistent-data lvm2 chrony net-tools \
+               nc pcre-devel langpacks-en glibc-all-langpacks openssh openssh-clients \
+               openssl-devel compat-openssl10
+
+# Install containerd from a local RPM file
+yum install -y $PATH/rpm/containerd.io-1.6.21-3.1.el8.x86_64.rpm
+
+# Set the correct timezone for the system
+timedatectl set-timezone Asia/Ho_Chi_Minh
+
+# Set up containerd configuration
+mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml
+
+# Modify the configuration to use systemd as the cgroup driver, which is recommended for Kubernetes
+sed -i "s|SystemdCgroup = false|SystemdCgroup = true|g" /etc/containerd/config.toml
+
+# Enable and start containerd service
+systemctl enable containerd
+systemctl start containerd
+
+# Stop firewall (this might depend on the security policy of your environment)
+systemctl stop firewalld
+
+# Import Kubernetes and flannel images into containerd
+echo "#----> Import Images for Kubernetes:"
+ctr -n k8s.io image import $PATH/images/pause_3.9.tar
+ctr -n k8s.io image import $PATH/images/pause_3.6.tar
+ctr -n k8s.io image import $PATH/images/controller_v1.8.1.tar
+ctr -n k8s.io image import $PATH/images/coredns_v1.10.1.tar
+ctr -n k8s.io image import $PATH/images/etcd_3.5.7-0.tar
+ctr -n k8s.io image import $PATH/images/flannel-cni-plugin_v1.1.2.tar
+ctr -n k8s.io image import $PATH/images/flannel_v0.22.0.tar
+ctr -n k8s.io image import $PATH/images/install_k8s_containerd.sh
+ctr -n k8s.io image import $PATH/images/kube-apiserver_v1.27.4.tar
+ctr -n k8s.io image import $PATH/images/kube-controller-manager_v1.27.4.tar
+ctr -n k8s.io image import $PATH/images/kube-proxy_v1.27.4.tar
+ctr -n k8s.io image import $PATH/images/kube-scheduler_v1.27.4.tar
+ctr -n k8s.io image import $PATH/images/kube-webhook-certgen_v20230407.tar
+
+# List all imported images
+crictl images list
+
+# Install Kubernetes components such as kubeadm, kubelet, kubectl
+echo "#----> Installing kubeadm:"
+yum install -y \
+    $PATH/rpm/libnetfilter_cthelper-1.0.0-15.el8.x86_64.rpm  \
+    $PATH/rpm/libnetfilter_cttimeout-1.0.0-11.el8.x86_64.rpm  \
+    $PATH/rpm/libnetfilter_queue-1.0.4-3.el8.x86_64.rpm  \
+    $PATH/rpm/cri-tools-1.26.0-0.x86_64.rpm  \
+    $PATH/rpm/conntrack-tools-1.4.4-11.el8.x86_64.rpm  \
+    $PATH/rpm/kubernetes-cni-1.2.0-0.x86_64.rpm  \
+    $PATH/rpm/kubelet-1.27.4-0.x86_64.rpm  \
+    $PATH/rpm/kubectl-1.27.4-0.x86_64.rpm  \
+    $PATH/rpm/kubeadm-1.27.4-0.x86_64.rpm
+
+# Update system and disable swap as it is required by Kubernetes
+yum update -y
+swapoff -a
+
+# Enable and start the kubelet service
+systemctl enable kubelet
+systemctl start kubelet
+
+# Update fstab to disable swap permanently
+echo "#----> Updating swap-off"
+vi /etc/fstab
+
+# Initialize the Kubernetes master node
+echo "#----> Step promote node/master:"
+kubeadm init --kubernetes-version=v1.27.4 --service-dns-domain=k8s-vpb.local --pod-network-cidr=172.28.0.0/16 --service-cidr=172.27.0.0/16
+
+# After initialization, set up the kubeconfig file for kubectl
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Apply Flannel as the network plugin
+kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+
+# Install CoreDNS
+kubectl apply -f https://storage.googleapis.com/kubernetes-the-hard-way/coredns.yaml
+
+# To join a second master node, retrieve the join command from the existing master node:
+# Run the following on the first master:
+# kubeadm token create --print-join-command
+# Then, run the output join command on the second node:
+# Example:
+kubeadm join <master-ip>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+
+# Check all pods in the system namespace
+kubectl get pods -n kube-system
+
+# Once the control-plane is successfully initialized, you can join worker nodes to the cluster.
+# First, retrieve the join command from the master node, which is printed after `kubeadm init`.
+# Example command for joining worker nodes:
+
+echo "#----> Worker nodes joining the cluster:"
+kubeadm join 10.37.8.50:6443 --token 9t5dou.6umnfn5b5bqvhlq6 \
+        --discovery-token-ca-cert-hash sha256:fd5afd5a1d377d3cfa169b286037ba7e754a1f21e973085e08603d4206f602de
+
+# Example using DNS name of the master node
+# kubeadm join k8s-master.vpb.local:6443 --token 9t5dou.6umnfn5b5bqvhlq6 \
+#        --discovery-token-ca-cert-hash sha256:fd5afd5a1d377d3cfa169b286037ba7e754a1f21e973085e08603d4206f602de
+
+# Joining worker nodes involves running this command on each worker node, 
+# making sure they are properly configured with containerd and Kubernetes tools like kubeadm, kubelet, and kubectl.
+
+# On each worker node, you should ensure containerd is installed and kubeadm setup as previously outlined.
+# Then run the `kubeadm join` command shown above.
+
+# To validate, once the worker nodes are joined, you can check the nodes status on the master node:
+echo "#----> Validating cluster nodes status:"
+kubectl get nodes
