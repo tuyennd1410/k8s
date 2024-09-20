@@ -1,4 +1,11 @@
 #!/bin/bash
+# update repository
+vpbank
+rm -f /etc/sysconfig/rhn/systemid
+vpbank
+yum update -y
+#if need disable repo
+yum update -y --disablerepo=rhel7-x86_64
 
 # Configure the hostname and the /etc/hosts file on all nodes.
 hostnamectl set-hostname master1   # On Master 1
