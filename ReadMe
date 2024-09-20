@@ -1,8 +1,25 @@
 #!/bin/bash
 
+# Configure the hostname and the /etc/hosts file on all nodes.
+hostnamectl set-hostname master1   # On Master 1
+hostnamectl set-hostname master2   # On Master 2
+hostnamectl set-hostname worker1   # On Worker 1
+hostnamectl set-hostname worker2   # On Worker 2
+hostnamectl set-hostname worker3   # On Worker 3
+hostnamectl set-hostname worker4   # On Worker 4
+
+# Edit the /etc/hosts file to add the IP addresses of all nodes:
+192.168.1.10 master1
+192.168.1.11 master2
+192.168.1.20 worker1
+192.168.1.21 worker2
+192.168.1.22 worker3
+192.168.1.23 worker4
+
 # Set the container runtime endpoint for CRI-O compatibility
 export CONTAINER_RUNTIME_ENDPOINT=unix:///var/run/containerd/containerd.sock
 PATH=""
+# Set path as directory upload setup files on server
 
 # Installing containerd: Set up necessary kernel modules and system configurations
 echo "#----> Installing containerd:"
@@ -108,7 +125,8 @@ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 # Apply Flannel as the network plugin
-kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+cd manifest
+kubectl apply -f kube-flannel.yml
 
 # Install CoreDNS
 kubectl apply -f https://storage.googleapis.com/kubernetes-the-hard-way/coredns.yaml
