@@ -133,7 +133,8 @@ yum install -y \
     $PATH/rpm/kubernetes-cni-1.5.1-150500.1.1.x86_64.rpm  \
     $PATH/rpm/kubelet-1.31.1-150500.1.1.x86_64.rpm  \
     $PATH/rpm/kubectl-1.31.1-150500.1.1.x86_64.rpm  \
-    $PATH/rpm/kubeadm-1.31.1-150500.1.1.x86_64.rpm
+    $PATH/rpm/kubeadm-1.31.1-150500.1.1.x86_64.rpm  \
+    $PATH/rpm/libnftnl-1.2.6-4.el9_4.x86_64.rpm
 
 
 # Enable kubelet
