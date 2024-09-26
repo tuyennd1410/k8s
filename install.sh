@@ -9,6 +9,13 @@ x.x.x.x worker1   # Replace with your actual hostname and IP address
 x.x.x.x  worker2   # Replace with your actual hostname and IP address
 EOF
 
+
+# Set the container runtime endpoint for CRI-O compatibility
+export CONTAINER_RUNTIME_ENDPOINT=unix:///var/run/containerd/containerd.sock
+PATH=""
+# Set path as directory upload setup files on server
+
+
 # Step 1: Install Kernel Headers
 echo "Installing kernel headers"
 sudo dnf install kernel-devel-$(uname -r) -y
@@ -44,6 +51,14 @@ EOF
 # Apply the sysctl settings
 sudo sysctl --system
 
+# Clean up YUM packages and upgrade the system
+yum clean packages
+yum upgrade -y
+
+# Install essential packages needed for Kubernetes and containerd
+yum install -y pcre-devel yum-utils device-mapper-persistent-data lvm2 chrony net-tools \
+               nc pcre-devel langpacks-en glibc-all-langpacks openssh openssh-clients \
+               openssl-devel compat-openssl10
 # Step 4: Disable Swap
 echo "Disabling swap"
 sudo swapoff -a
@@ -54,6 +69,9 @@ echo "Installing containerd"
 sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 sudo dnf makecache
 sudo dnf -y install containerd.io
+
+# Set the correct timezone for the system
+timedatectl set-timezone Asia/Ho_Chi_Minh
 
 # Configure containerd
 echo "Configuring containerd"
@@ -76,24 +94,47 @@ sudo firewall-cmd --zone=public --permanent --add-port=10252/tcp
 sudo firewall-cmd --zone=public --permanent --add-port=10255/tcp
 sudo firewall-cmd --zone=public --permanent --add-port=5473/tcp
 
+# (Option) Stop firewall (this might depend on the security policy of your environment)
+systemctl stop firewalld
 # Reload firewall
 sudo firewall-cmd --reload
 
 # Step 7: Install Kubernetes components
 echo "Installing Kubernetes components"
-cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
-[kubernetes]
-name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/
-enabled=1
-gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
-exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
-EOF
 
-# Install kubelet, kubeadm, kubectl
-sudo dnf makecache
-sudo dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+# Import Kubernetes and flannel images into containerd
+echo "#----> Import Images for Kubernetes:"
+ctr -n k8s.io image import $PATH/images/pause:3.10.tar
+ctr -n k8s.io image import $PATH/images/pause_3.6.tar
+ctr -n k8s.io image import $PATH/images/controller_v1.8.1.tar
+ctr -n k8s.io image import $PATH/images/coredns:v1.11.3.tar
+ctr -n k8s.io image import $PATH/images/etcd:3.5.15-0.tar
+ctr -n k8s.io image import $PATH/images/flannel-cni-plugin_v1.1.2.tar
+ctr -n k8s.io image import $PATH/images/flannel_v0.22.0.tar
+ctr -n k8s.io image import $PATH/images/install_k8s_containerd.sh
+ctr -n k8s.io image import $PATH/images/kube-apiserver:v1.31.0.tar
+ctr -n k8s.io image import $PATH/images/kube-controller-manager:v1.31.0.tar
+ctr -n k8s.io image import $PATH/images/kube-proxy:v1.31.0.tar
+ctr -n k8s.io image import $PATH/images/kube-scheduler:v1.31.0.tar
+ctr -n k8s.io image import $PATH/images/kube-webhook-certgen_v20230407.tar
+
+
+# List all imported images
+crictl images list
+
+# Install Kubernetes components such as kubeadm, kubelet, kubectl
+echo "#----> Installing kubeadm:"
+yum install -y \
+    $PATH/rpm/libnetfilter_cthelper-1.0.0-22.el9.x86_64.rpm  \
+    $PATH/rpm/libnetfilter_cttimeout-1.0.0-19.el9.x86_64.rpm  \
+    $PATH/rpm/libnetfilter_queue-1.0.5-1.el9.x86_64.rpm  \
+    $PATH/rpm/cri-tools-1.31.1-150500.1.1.x86_64.rpm  \
+    $PATH/rpm/conntrack-tools-1.4.7-2.el9.x86_64.rpm  \
+    $PATH/rpm/kubernetes-cni-1.5.1-150500.1.1.x86_64.rpm  \
+    $PATH/rpm/kubelet-1.31.1-150500.1.1.x86_64.rpm  \
+    $PATH/rpm/kubectl-1.31.1-150500.1.1.x86_64.rpm  \
+    $PATH/rpm/kubeadm-1.31.1-150500.1.1.x86_64.rpm
+
 
 # Enable kubelet
 sudo systemctl enable --now kubelet.service
