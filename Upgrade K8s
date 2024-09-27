@@ -1,0 +1,74 @@
+#Trên Server redhat có kết nối internet thực hiện các lệnh sau để download dependence
+# Update repo
+cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+EOF
+# Download rpm
+dnf makecache; dnf download -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+
+# Pull các image và save dưới file tar và đẩy lên server cần upgrade
+
+Master Node
+export CONTAINER_RUNTIME_ENDPOINT=unix:///var/run/containerd/containerd.sock
+
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-apiserver_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-controller-manager_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-proxy_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-scheduler_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kubectl_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/conformance_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/etcd_3.5.15-0.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/pause:3.9.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/controller_v1.8.1.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/coredns:v1.11.3.tar
+
+sudo dnf install /data/k8s-containerd/1.28.13/rpm/cri-tools-1.28.0-150500.1.1.x86_64.rpm
+
+
+sudo dnf install /data/k8s-containerd/1.28.13/rpm/kubeadm-1.28.14-150500.2.1.x86_64.rpm
+kubeadm version
+sudo kubeadm upgrade apply v1.28.14
+
+kubectl get pods -n kube-system
+
+sudo dnf install /data/k8s-containerd/1.28.13/rpm/kubelet-1.28.14-150500.2.1.x86_64.rpm /data/k8s-containerd/1.28.13/rpm/kubectl-1.28.14-150500.2.1.x86_64.rpm  /data/k8s-containerd/1.28.13/rpm/kubernetes-cni-1.2.0-150500.2.1.x86_64.rpm /data/k8s-containerd/1.28.13/rpm/cri-tools-1.28.0-150500.1.1.x86_64.rpm
+
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+
+sudo systemctl status kubelet
+
+Worker Node
+
+export CONTAINER_RUNTIME_ENDPOINT=unix:///var/run/containerd/containerd.sock
+
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-apiserver_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-controller-manager_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-proxy_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kube-scheduler_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/kubectl_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/conformance_v1.28.14.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/etcd_3.5.15-0.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/pause:3.9.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/controller_v1.8.1.tar
+ctr -n k8s.io image import /data/k8s-containerd/1.28.13/images/coredns:v1.11.3.tar
+
+
+sudo dnf install /data/k8s-containerd/1.28.13/rpm/cri-tools-1.28.0-150500.1.1.x86_64.rpm
+
+sudo dnf install /data/k8s-containerd/1.28.13/rpm/kubeadm-1.28.14-150500.2.1.x86_64.rpm
+kubeadm version
+sudo kubeadm upgrade node
+
+sudo dnf install /data/k8s-containerd/1.28.13/rpm/kubelet-1.28.14-150500.2.1.x86_64.rpm /data/k8s-containerd/1.28.13/rpm/kubectl-1.28.14-150500.2.1.x86_64.rpm  /data/k8s-containerd/1.28.13/rpm/kubernetes-cni-1.2.0-150500.2.1.x86_64.rpm /data/k8s-containerd/1.28.13/rpm/cri-tools-1.28.0-150500.1.1.x86_64.rpm
+
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+
+sudo systemctl status kubelet
